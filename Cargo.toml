@@ -1,0 +1,15 @@
+[package]
+name = "bayesian_linear_regression"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nalgebra = {version = "0.32.3", features = ["rayon"]}
+iterators = "0.1.0"
+approx = "0.5.1"
+rayon = "1.8.0"
+itertools = "0.11.0"
+rand_distr = "0.4.3"
+rand = "0.8.5"
