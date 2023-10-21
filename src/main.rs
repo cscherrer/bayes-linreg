@@ -1,12 +1,14 @@
 extern crate nalgebra as na;
 
+use rv::prelude::*;
 use rand;
+use rand_distr::num_traits::Inv;
 use rayon::prelude::*;
 use rayon::iter::{ ParallelIterator, IndexedParallelIterator};
 use rand_distr::{Normal, Distribution};
-use na::{DMatrix, DVector, Dyn, SymmetricEigen, OVector, Vector};
+use na::{DMatrix, DVector, Dyn, SymmetricEigen};
 use core::iter::Iterator;
-use std::f64::consts::PI;
+use std::ops::Mul;
 // use rayon::iter::IndexedParallelIterator;
 
 // use itertools::Itertools;
@@ -146,7 +148,7 @@ impl Fit {
         let eigvecs: &DMatrix<f64> = &suffstats.xtx_eig.eigenvectors;
         let diag = DMatrix::from_diagonal(
             &eigvals
-                .map(|lam|  1.0 / (1.0 + lam))
+                .map(|lam|  (1.0 + lam).inv())
         );
         let hinv = eigvecs * diag * eigvecs.transpose();
         symmetrize(&mut hinv.clone());
@@ -190,7 +192,7 @@ impl Fit {
         // cache this to avoid recomputing
         let a_over_b = a / b;
 
-        let eigvals: &OVector<f64, Dyn> = &(self.suffstats.xtx_eig.eigenvalues);
+        let eigvals =  &(self.suffstats.xtx_eig.eigenvalues);
         let result = eigvals
             .iter()
             .map(|lam| lam / (a_over_b + lam))
@@ -226,7 +228,7 @@ impl Fit {
         let b = self.noise_precision;
         debug_assert!(a >= 0.0);
         debug_assert!(b >= 0.0);
-        let eigvals: &OVector<f64, Dyn> = &(self.suffstats.xtx_eig.eigenvalues);
+        let eigvals = &(self.suffstats.xtx_eig.eigenvalues);
 
         eigvals
             .iter()
@@ -256,7 +258,7 @@ impl Fit {
         self.weights *= b;
     }
 
-    // TODO: Use this to add an Iterator implementation for Fit
+    // TODO: Use this to add an Iterator trait implementation for Fit
     fn update(&mut self) {
         let n = self.num_samples() as f64;
         
@@ -280,7 +282,18 @@ impl Fit {
     }
 }
 
+fn fake_data(x: DMatrix<f64>, prior_precision: f64, noise_precision: f64)  {
+    let n = x.nrows();
+    let k = x.ncols();
 
+
+    let mut rng = rand::thread_rng();
+    let prior_rv = Normal::new(0.0, prior_precision.sqrt().inv()).unwrap();
+    let noise_rv = Normal::new(0.0, noise_precision.sqrt().inv()).unwrap();
+    let x_rv = Normal::new(0.0, 1.0).unwrap();
+    let w_rv = Normal::new(0.0, 1.0).unwrap();
+    let w: Vec<Normal> = w_rv.sample(100, &mut rng);
+}
 
 
 
