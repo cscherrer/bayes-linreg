@@ -66,7 +66,7 @@ impl SuffStats
 
         
 
-        let xtx_eig = na::SymmetricEigen::new(xtx.clone());
+        let xtx_eig = na::SymmetricEigen::new(xtx);
         
         let yty = y.dot(y);
     
@@ -110,8 +110,7 @@ mod tests {
         assert_eq!(stats.yty, 14.0);
     }
 }
-struct Fit where
-{
+struct Fit {
     suffstats: SuffStats,
     weights: DVector<f64>,
     prior_precision: f64,
@@ -282,17 +281,18 @@ impl Fit {
     }
 }
 
-fn fake_data(x: DMatrix<f64>, prior_precision: f64, noise_precision: f64)  {
+
+fn fake_data(x: &DMatrix<f64>, prior_precision: f64, noise_precision: f64) -> (DVector<f64>, DVector<f64>) {
     let n = x.nrows();
     let k = x.ncols();
 
 
     let mut rng = rand::thread_rng();
-    let prior_rv = Normal::new(0.0, prior_precision.sqrt().inv()).unwrap();
-    let noise_rv = Normal::new(0.0, noise_precision.sqrt().inv()).unwrap();
-    let x_rv = Normal::new(0.0, 1.0).unwrap();
-    let w_rv = Normal::new(0.0, 1.0).unwrap();
-    let w: Vec<Normal> = w_rv.sample(100, &mut rng);
+    let weights_rv = Gaussian::new(0.0, prior_precision.sqrt().inv()).unwrap();
+    let noise_rv = Gaussian::new(0.0, noise_precision.sqrt().inv()).unwrap();
+    let w: DVector<f64> = DVector::from_vec(weights_rv.sample(k, &mut rng));
+    let y = x * &w + DVector::from_vec(noise_rv.sample(n, &mut rng));
+    (w, y)
 }
 
 
@@ -301,11 +301,14 @@ fn fake_data(x: DMatrix<f64>, prior_precision: f64, noise_precision: f64)  {
 
 fn main() {
     // Fill x with values from a normal distribution
-    let n = 10000;
-    let k = 1000;
-    let x = &DMatrix::from_fn(n, k, |_, _| rand::random::<f64>());
-    let b = &DVector::from_fn(k, |_,_| rand::random::<f64>());
-    let y = x * b + DVector::from_fn(n, |_,_| rand::random::<f64>());
+    let n = 100000;
+    let k = 100;
+    let mut rng = rand::thread_rng();
+
+    let x_rv = Gaussian::standard();
+    let x: DMatrix<f64> = DMatrix::from_vec(n, k, x_rv.sample(n * k, &mut rng));
+    let (w, y) = fake_data(&x, 7.0, 11.0);
+    // let x = &DMatrix::from_fn(n, k, |_, _| rand::random::<f64>());
     let mut fit = Fit::new(&x, &y);
   
     println!();
@@ -314,14 +317,14 @@ fn main() {
         // println!("-----------------------------------------");
         // println!("Iteration: {}", n);
         // println!("Weights: {}", fit.weights);
-        println!("Prior precision: {}\tNoise precision: {}", fit.prior_precision, fit.noise_precision);
+        // println!("Prior precision: {}\tNoise precision: {}", fit.prior_precision, fit.noise_precision);
         // println!("Noise precision: {}", fit.noise_precision);
         // println!("SSR: {}", fit.ssr());
         // println!();
         // println!("Effective number of parameters: {}", fit.effective_num_parameters());
         // println!("Log determinant of Hessian: {}", fit.logdet_hessian());
         // println!("Inverse Hessian: {}", fit.inverse_hessian());
-        // println!("Log evidence: {}", fit.log_evidence());
+        println!("Log evidence: {}", fit.log_evidence());
         // println!();
     }
 }
