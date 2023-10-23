@@ -1,18 +1,13 @@
 extern crate nalgebra as na;
 
+use statrs::distribution::{ChiSquared, ContinuousCDF};
 use rv::prelude::*;
 use rand;
 use rand_distr::num_traits::Inv;
-use rayon::prelude::*;
 use rayon::iter::{ ParallelIterator, IndexedParallelIterator};
-use rand_distr::{Normal, Distribution};
 use na::{DMatrix, DVector, Dyn, SymmetricEigen};
 use core::iter::Iterator;
-use std::ops::Mul;
-// use rayon::iter::IndexedParallelIterator;
 
-// use itertools::Itertools;
-// use rayon::prelude::*;
 
 const LOG_2PI: f64 = 1.837877066409345444578941147617480054291973978803466899914960778699346285617763;
 
@@ -93,6 +88,18 @@ impl SuffStats
 
         let result = yty - 2.0 * xty.dot(weights) + wt_xtx_w;
         result.max(0.0)
+    }
+}
+
+impl Clone for SuffStats {
+    fn clone(&self) -> SuffStats {
+        SuffStats {
+            n: self.n,
+            k: self.k,
+            xtx_eig: self.xtx_eig.clone(),
+            xty: self.xty.clone(),
+            yty: self.yty,
+        }
     }
 }
 
@@ -202,7 +209,30 @@ impl Fit {
         result
     }
 
-    
+    fn loglik_pvalue(&self, prior_precision: f64, noise_precision: f64) -> f64 {
+        // self serves as the alternative hypothesis
+        let loglik_alt = self.log_evidence();
+
+        let mut freedom = 0.0;
+        if self.update_prior {
+            freedom += 1.0;
+        }
+        if self.update_noise {
+            freedom += 1.0;
+        }
+
+        // The null hypothesis is the same, but with the prior and noise precisions set to the values passed in
+        let mut null = self.clone();
+        null.prior_precision = prior_precision;
+        null.noise_precision = noise_precision;
+        null.update_prior = false;
+        null.update_noise = false;
+        null.update();
+        let loglik_null = null.log_evidence();
+
+        let test = ChiSquared::new(freedom).unwrap();
+        test.cdf(2.0 * (loglik_alt - loglik_null))
+    }
 
     fn log_evidence(&self) -> f64 {
         let n = self.num_samples() as f64;
@@ -281,6 +311,23 @@ impl Fit {
     }
 }
 
+impl Clone for Fit {
+    fn clone(&self) -> Fit {
+        Fit {
+            suffstats: self.suffstats.clone(),
+            weights: self.weights.clone(),
+            prior_precision: self.prior_precision,
+            noise_precision: self.noise_precision,
+            iteration_count: self.iteration_count,
+            update_prior: self.update_prior,
+            update_noise: self.update_noise,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        *self = source.clone()
+    }
+}
 
 fn fake_data(x: &DMatrix<f64>, prior_precision: f64, noise_precision: f64) -> (DVector<f64>, DVector<f64>) {
     let n = x.nrows();
@@ -296,108 +343,33 @@ fn fake_data(x: &DMatrix<f64>, prior_precision: f64, noise_precision: f64) -> (D
 }
 
 
-
-
-
 fn main() {
     // Fill x with values from a normal distribution
-    let n = 100000;
-    let k = 100;
+    let n = 1000;
+    let k = 10;
     let mut rng = rand::thread_rng();
 
     let x_rv = Gaussian::standard();
-    let x: DMatrix<f64> = DMatrix::from_vec(n, k, x_rv.sample(n * k, &mut rng));
-    let (w, y) = fake_data(&x, 7.0, 11.0);
-    // let x = &DMatrix::from_fn(n, k, |_, _| rand::random::<f64>());
-    let mut fit = Fit::new(&x, &y);
-  
-    println!();
-    for _n in 0..10 {
-        fit.update();
-        // println!("-----------------------------------------");
-        // println!("Iteration: {}", n);
-        // println!("Weights: {}", fit.weights);
-        // println!("Prior precision: {}\tNoise precision: {}", fit.prior_precision, fit.noise_precision);
-        // println!("Noise precision: {}", fit.noise_precision);
-        // println!("SSR: {}", fit.ssr());
-        // println!();
-        // println!("Effective number of parameters: {}", fit.effective_num_parameters());
-        // println!("Log determinant of Hessian: {}", fit.logdet_hessian());
-        // println!("Inverse Hessian: {}", fit.inverse_hessian());
-        println!("Log evidence: {}", fit.log_evidence());
-        // println!();
+    let mut pval_sum = 0.0;
+    let nsamples = 1000;
+    for _ in 0..nsamples {
+        let x: DMatrix<f64> = DMatrix::from_vec(n, k, x_rv.sample(n * k, &mut rng));
+        let prior_precision = 7.0;
+        let noise_precision = 11.0;
+        let (_w, y) = fake_data(&x, prior_precision, noise_precision);
+        let mut fit = Fit::new(&x, &y);
+    
+        // 10 iterations. This is very kludgy; we should use an Iterator trait implementation instead.
+        for _n in 0..10 {
+            fit.update();
+        }
+        let pval = fit.loglik_pvalue(prior_precision, noise_precision);
+        pval_sum += pval;
     }
+
+    let pval_mean = pval_sum / nsamples as f64;
+
+    // Should be close to 0.5
+    println!("mean pval: {:.3}", pval_mean);
 }
-
-
-// result is a vec in column-major order
-
-// struct BayesianLinReg<'a, T, K: Dim, S> {
-//     suffstats: SuffStats<T>,
-//     n: isize,                          // number of samples (rows in X)
-//     xtx: &'a mut Matrix<T, K, K, S>,   // X^T * X
-//     xty: &'a mut Vector<T, K, S>,      // X^T * y
-//     yty: &'a mut T,                    // y^T * y
-
-//     hinv: &'a mut Matrix<T, K, K, S>,
-//     weights: &'a mut Vector<T, K, S>,
-//     sigma: &'a mut T,
-
-//     prior_precision: &'a T,            // prior precision
-//     noise_precision: &'a T,            // noise precision
-// }
-
-
-
-// impl<'a, T, K: Dim, S: RawStorage<T, N, K>> BayesianLinReg<'a, T, K, S> {
-//     fn new<N: Dim>(
-//         x: &'a Matrix<T, N, K, S>,
-//         y: &'a Vector<T, N, S>,
-//     ) -> BayesianLinReg<'a, T, K, S>
-//     where
-//         S: RawStorage<T, N, K>,
-//      {
-//         let n: isize = x.nrows() as isize;
-//         // xtx = x' * x
-//         let mut xtx = x.transpose() * x;
-//         // xty = x' * y
-//         let mut xty = x.transpose() * y;
-//         // yty = y' * y
-//         let mut yty = y.dot(y);
-//         // hinv = xtx * prior_precision + I
-//         let mut hinv = xtx.clone();
-//         // weights = hinv^-1 * xty * prior_precision
-//         let mut weights = xty.clone();
-//         // sigma = (yty - weights' * xty) / (n - weights' * xtx - noise_precision)
-//         let mut sigma = yty.clone();
-//         BayesianLinReg {
-//             n,
-//             xtx: &mut xtx,
-//             xty: &mut xty,
-//             yty: &mut yty,
-//             hinv: &mut hinv,
-//             weights: &mut weights,
-//             sigma: &mut sigma,
-//             prior_precision: &T::zero(),
-//             noise_precision: &T::zero(),
-//         }
-//     }
-
-//     fn add_sample(&mut self, x: &Vector<T, K, S>, y: T) {
-//         self.n += 1;
-//         *self.xtx += x * x.transpose();
-//         *self.xty += x * y;
-//         *self.yty += y * y;
-//     }
-
-//     fn compute(&mut self) {
-//         let n = self.n as T;
-//         let prior_precision = *self.prior_precision;
-//         let noise_precision = *self.noise_precision;
-
-//         *self.hinv = *self.xtx * prior_precision + Matrix::identity();
-//         *self.weights = self.hinv.try_inverse().unwrap() * *self.xty * prior_precision;
-//         *self.sigma = (self.yty - self.weights.dot(&*self.xty)) / (n - self.weights.dot(&*self.xtx) - noise_precision);
-//     }
-// }
 
