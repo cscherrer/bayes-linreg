@@ -128,6 +128,19 @@ struct Fit {
     update_noise: bool,
 }
 
+
+fn is_symmetric(x: &DMatrix<f64>) -> bool {
+    let n = x.nrows();
+    assert_eq!(n, x.ncols());
+    for i in 0..n {
+        for j in 0..i {
+            if x[(i, j)] != x[(j, i)] {
+                return false;
+            }
+        }
+    }
+    true
+}
 fn symmetrize(x: &mut DMatrix<f64>) -> &DMatrix<f64> {
     // check that x is square
     let n = x.nrows();
@@ -139,6 +152,7 @@ fn symmetrize(x: &mut DMatrix<f64>) -> &DMatrix<f64> {
             x[(j, i)] = x[(i, j)];
         }
     }
+    debug_assert!(is_symmetric(x));
     x
 }
 
@@ -156,8 +170,8 @@ impl Fit {
             &eigvals
                 .map(|lam|  (1.0 + lam).inv())
         );
-        let hinv = eigvecs * diag * eigvecs.transpose();
-        symmetrize(&mut hinv.clone());
+        let mut hinv = eigvecs * diag * eigvecs.transpose();
+        symmetrize(&mut hinv);
         let weights = hinv * &suffstats.xty;
 
         let fit = Fit {
@@ -273,8 +287,9 @@ impl Fit {
             &eigvals
                 .map(|lam| 1.0 / (self.prior_precision + self.noise_precision * lam))
         );
-        let hinv = eigvecs * diag * eigvecs.transpose();
-        symmetrize(&mut hinv.clone());
+        let mut hinv = eigvecs * diag * eigvecs.transpose();
+        symmetrize(&mut hinv);
+        debug_assert!(is_symmetric(&hinv));
         hinv
     }
 
