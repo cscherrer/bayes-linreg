@@ -33,3 +33,16 @@ P(\mathbf{y} \mid \alpha,\ \beta) &= \int P(\mathbf{y}\mid \mathbf{w},\ \alpha,\
       \right)\ .
 \end{aligned}
 $$
+
+using the approach described in Bishop (2006), which cycles through
+
+
+1. Update α and β
+
+2. Update H
+
+3. Update μ
+
+For details, see
+
+Bishop, C. M. (2006). [Pattern Recognition and Machine Learning](https://www.microsoft.com/en-us/research/people/cmbishop/prml-book/) (M. Jordan, J. Kleinberg, & B. Schölkopf (eds.); Vol. 53, Issue 9). Springer. Available online: https://www.microsoft.com/en-us/research/uploads/prod/2006/01/Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf
