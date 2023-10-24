@@ -11,6 +11,7 @@ use core::iter::Iterator;
 
 const LOG_2PI: f64 = 1.837877066409345444578941147617480054291973978803466899914960778699346285617763;
 
+#[derive(Clone)]
 struct SuffStats where 
 {
     n: usize,
@@ -91,18 +92,6 @@ impl SuffStats
     }
 }
 
-impl Clone for SuffStats {
-    fn clone(&self) -> SuffStats {
-        SuffStats {
-            n: self.n,
-            k: self.k,
-            xtx_eig: self.xtx_eig.clone(),
-            xty: self.xty.clone(),
-            yty: self.yty,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +106,8 @@ mod tests {
         assert_eq!(stats.yty, 14.0);
     }
 }
+
+#[derive(Clone)]
 struct Fit {
     suffstats: SuffStats,
     weights: DVector<f64>,
@@ -323,24 +314,6 @@ impl Fit {
         self.update_weights();
 
         self.iteration_count += 1;
-    }
-}
-
-impl Clone for Fit {
-    fn clone(&self) -> Fit {
-        Fit {
-            suffstats: self.suffstats.clone(),
-            weights: self.weights.clone(),
-            prior_precision: self.prior_precision,
-            noise_precision: self.noise_precision,
-            iteration_count: self.iteration_count,
-            update_prior: self.update_prior,
-            update_noise: self.update_noise,
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        *self = source.clone()
     }
 }
 
