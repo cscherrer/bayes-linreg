@@ -1,35 +1,32 @@
 extern crate nalgebra as na;
 
-use statrs::distribution::{ChiSquared, ContinuousCDF};
-use rv::prelude::*;
+use core::iter::Iterator;
+use na::{DMatrix, DVector, Dyn, SymmetricEigen};
 use rand;
 use rand_distr::num_traits::Inv;
-use rayon::iter::{ ParallelIterator, IndexedParallelIterator};
-use na::{DMatrix, DVector, Dyn, SymmetricEigen};
-use core::iter::Iterator;
+use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+use rv::prelude::*;
+use statrs::distribution::{ChiSquared, ContinuousCDF};
 
-
-const LOG_2PI: f64 = 1.837877066409345444578941147617480054291973978803466899914960778699346285617763;
+const LOG_2PI: f64 =
+    1.837877066409345444578941147617480054291973978803466899914960778699346285617763;
 
 #[derive(Clone)]
-struct SuffStats where 
-{
+struct SuffStats {
     n: usize,
     k: usize,
-    xtx_eig: SymmetricEigen<f64, Dyn>,   // Eigendecomposition of x' * x
-    xty: DVector<f64>,                   // x' * y
-    yty: f64,                            // y' * y
+    xtx_eig: SymmetricEigen<f64, Dyn>, // Eigendecomposition of x' * x
+    xty: DVector<f64>,                 // x' * y
+    yty: f64,                          // y' * y
 }
 
-impl SuffStats
-    where 
-        {
+impl SuffStats {
     fn new(x: &DMatrix<f64>, y: &DVector<f64>) -> SuffStats {
         let n = x.nrows();
         let k = x.ncols();
-    
+
         assert_eq!(n, y.nrows());
-    
+
         // We'll initialize xtx and xty to zero and then traverse the columns of x, updating xtx and xty as we go
         /**************************************************************************************************************
          * TODO: We're initializing these, only to write over them. Can we leave them uninitialized to start?
@@ -38,17 +35,19 @@ impl SuffStats
         let mut xtx = DMatrix::zeros(k, k);
 
         /**************************************************************************************************************
-         * TODO: Can we do this in parallel? Seems tricky in Rust 
+         * TODO: Can we do this in parallel? Seems tricky in Rust
          * because we'd have to split ownership of xtx and xty over multiple threads.
          **************************************************************************************************************/
-        xtx.par_column_iter_mut().enumerate().for_each(|(i, mut xtx_i)| {
-            let x_i = &x.column(i);
-            xtx_i[i] = x_i.dot(&x_i);
-            for j in 0..i {
-                let xtx_ij = x_i.dot(&x.column(j));
-                xtx_i[j] = xtx_ij;
-            }
-        });
+        xtx.par_column_iter_mut()
+            .enumerate()
+            .for_each(|(i, mut xtx_i)| {
+                let x_i = &x.column(i);
+                xtx_i[i] = x_i.dot(&x_i);
+                for j in 0..i {
+                    let xtx_ij = x_i.dot(&x.column(j));
+                    xtx_i[j] = xtx_ij;
+                }
+            });
 
         for i in 0..k {
             for j in 0..i {
@@ -56,22 +55,18 @@ impl SuffStats
             }
         }
 
-
-
         let xty = x.ad_mul(&y);
 
-        
-
         let xtx_eig = na::SymmetricEigen::new(xtx);
-        
+
         let yty = y.dot(y);
-    
+
         SuffStats {
             n,
             k,
             xtx_eig,
             xty,
-            yty
+            yty,
         }
     }
 
@@ -113,12 +108,11 @@ struct Fit {
     weights: DVector<f64>,
     prior_precision: f64,
     noise_precision: f64,
-    
+
     iteration_count: usize,
     update_prior: bool,
     update_noise: bool,
 }
-
 
 fn is_symmetric(x: &DMatrix<f64>) -> bool {
     let n = x.nrows();
@@ -157,10 +151,7 @@ impl Fit {
         // This uses ridge regression in case xtx is singular
         let eigvals: &DVector<f64> = &suffstats.xtx_eig.eigenvalues;
         let eigvecs: &DMatrix<f64> = &suffstats.xtx_eig.eigenvectors;
-        let diag = DMatrix::from_diagonal(
-            &eigvals
-                .map(|lam|  (1.0 + lam).inv())
-        );
+        let diag = DMatrix::from_diagonal(&eigvals.map(|lam| (1.0 + lam).inv()));
         let mut hinv = eigvecs * diag * eigvecs.transpose();
         symmetrize(&mut hinv);
         let weights = hinv * &suffstats.xty;
@@ -189,12 +180,9 @@ impl Fit {
         self.suffstats.k
     }
 
-
     fn xty(&self) -> &DVector<f64> {
         &self.suffstats.xty
     }
-
-
 
     fn effective_num_parameters(&self) -> f64 {
         let a = self.prior_precision;
@@ -203,11 +191,8 @@ impl Fit {
         // cache this to avoid recomputing
         let a_over_b = a / b;
 
-        let eigvals =  &(self.suffstats.xtx_eig.eigenvalues);
-        let result = eigvals
-            .iter()
-            .map(|lam| lam / (a_over_b + lam))
-            .sum();
+        let eigvals = &(self.suffstats.xtx_eig.eigenvalues);
+        let result = eigvals.iter().map(|lam| lam / (a_over_b + lam)).sum();
         debug_assert!(0.0 <= result);
         debug_assert!(result <= self.num_features() as f64);
 
@@ -242,20 +227,16 @@ impl Fit {
     fn log_evidence(&self) -> f64 {
         let n = self.num_samples() as f64;
         let k = self.num_features() as f64;
-        
+
         let a = self.prior_precision;
         let b = self.noise_precision;
         let rtr = self.ssr();
 
-        0.5 * (
-              k * a.ln()
-            + n * b.ln()
+        0.5 * (k * a.ln() + n * b.ln()
             - (b * rtr + a * self.weights.dot(&self.weights))
             - self.logdet_hessian()
-            - n * LOG_2PI
-        )
+            - n * LOG_2PI)
     }
-
 
     fn logdet_hessian(&self) -> f64 {
         let a = self.prior_precision;
@@ -264,10 +245,7 @@ impl Fit {
         debug_assert!(b >= 0.0);
         let eigvals = &(self.suffstats.xtx_eig.eigenvalues);
 
-        eigvals
-            .iter()
-            .map(|lam| (a + b * lam).ln())
-            .sum()
+        eigvals.iter().map(|lam| (a + b * lam).ln()).sum()
     }
 
     // TODO: store inverse_hessian in the struct and update in-place
@@ -275,8 +253,7 @@ impl Fit {
         let eigvals: &DVector<f64> = &(self.suffstats.xtx_eig.eigenvalues);
         let eigvecs: &DMatrix<f64> = &self.suffstats.xtx_eig.eigenvectors;
         let diag = DMatrix::from_diagonal(
-            &eigvals
-                .map(|lam| 1.0 / (self.prior_precision + self.noise_precision * lam))
+            &eigvals.map(|lam| 1.0 / (self.prior_precision + self.noise_precision * lam)),
         );
         let mut hinv = eigvecs * diag * eigvecs.transpose();
         symmetrize(&mut hinv);
@@ -296,16 +273,16 @@ impl Fit {
     // TODO: Use this to add an Iterator trait implementation for Fit
     fn update(&mut self) {
         let n = self.num_samples() as f64;
-        
+
         let w = &self.weights;
-        
+
         let wtw = w.dot(w);
         debug_assert!(wtw >= 0.0);
-        
+
         if self.update_prior {
             self.prior_precision = self.effective_num_parameters() / wtw;
         }
-        
+
         if self.update_noise {
             self.noise_precision = (n - self.effective_num_parameters()) / self.ssr();
             debug_assert!(self.noise_precision > 0.0);
@@ -317,10 +294,13 @@ impl Fit {
     }
 }
 
-fn fake_data(x: &DMatrix<f64>, prior_precision: f64, noise_precision: f64) -> (DVector<f64>, DVector<f64>) {
+fn fake_data(
+    x: &DMatrix<f64>,
+    prior_precision: f64,
+    noise_precision: f64,
+) -> (DVector<f64>, DVector<f64>) {
     let n = x.nrows();
     let k = x.ncols();
-
 
     let mut rng = rand::thread_rng();
     let weights_rv = Gaussian::new(0.0, prior_precision.sqrt().inv()).unwrap();
@@ -329,7 +309,6 @@ fn fake_data(x: &DMatrix<f64>, prior_precision: f64, noise_precision: f64) -> (D
     let y = x * &w + DVector::from_vec(noise_rv.sample(n, &mut rng));
     (w, y)
 }
-
 
 fn main() {
     // Fill x with values from a normal distribution
@@ -346,7 +325,7 @@ fn main() {
         let noise_precision = 11.0;
         let (_w, y) = fake_data(&x, prior_precision, noise_precision);
         let mut fit = Fit::new(&x, &y);
-    
+
         // 10 iterations. This is very kludgy; we should use an Iterator trait implementation instead.
         for _n in 0..10 {
             fit.update();
@@ -360,4 +339,3 @@ fn main() {
     // Should be close to 0.5
     println!("mean pval: {:.3}", pval_mean);
 }
-
