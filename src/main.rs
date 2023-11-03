@@ -62,11 +62,6 @@ impl SuffStats {
          * Maybe std::mem::MaybeUninit can help here?
          **************************************************************************************************************/
         let mut xtx = DMatrix::zeros(k, k);
-
-        /**************************************************************************************************************
-         * TODO: Can we do this in parallel? Seems tricky in Rust
-         * because we'd have to split ownership of xtx and xty over multiple threads.
-         **************************************************************************************************************/
         xtx.par_column_iter_mut()
             .enumerate()
             .for_each(|(i, mut xtx_i)| {
